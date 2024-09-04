@@ -8,14 +8,50 @@ internal class Program1
         string secretKey = "secret_key";
 
         Order order = new Order(1, 12000);
+        HashAlgorithmBase md5HashAlgorithm = new MD5HashAlgorithm();
+        HashAlgorithmBase sha256HashAlgorithm = new SHA256HashAlgorithm();
 
-        IPaymentSystem system1 = new PaymentSystem1();
-        IPaymentSystem system2 = new PaymentSystem2();
-        IPaymentSystem system3 = new PaymentSystem3(secretKey);
+        PaymentSystemMain system1 = new PaymentSystem1(md5HashAlgorithm);
+        PaymentSystemMain system2 = new PaymentSystem2(md5HashAlgorithm);
+        PaymentSystemMain system3 = new PaymentSystem3(sha256HashAlgorithm, secretKey);
 
         Console.WriteLine(system1.GetPayingLink(order));
         Console.WriteLine(system2.GetPayingLink(order));
         Console.WriteLine(system3.GetPayingLink(order));
+    }
+}
+
+public abstract class HashAlgorithmBase
+{
+    public string Create(string input)
+    {
+        if (input == null)
+            throw new ArgumentNullException(nameof(input));
+
+        using (var hashAlgorithm = CreateAlgorithm())
+        {
+            byte[] inputBytes = Encoding.UTF8.GetBytes(input);
+            byte[] hashBytes = hashAlgorithm.ComputeHash(inputBytes);
+            return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+        }
+    }
+
+    protected abstract HashAlgorithm CreateAlgorithm();
+}
+
+public class MD5HashAlgorithm : HashAlgorithmBase
+{
+    protected override HashAlgorithm CreateAlgorithm()
+    {
+        return MD5.Create();
+    }
+}
+
+public class SHA256HashAlgorithm : HashAlgorithmBase
+{
+    protected override HashAlgorithm CreateAlgorithm()
+    {
+        return SHA256.Create();
     }
 }
 
@@ -30,56 +66,23 @@ public class Order
     {
         if (id <= MinValue)
             throw new ArgumentOutOfRangeException(nameof(id), "Id должен быть положительным");
+
         if (amount <= MinValue)
             throw new ArgumentOutOfRangeException(nameof(amount), "Amount должен быть положительным");
 
-        (Id, Amount) = (id, amount);
+        Id = id;
+        Amount = amount;
     }
 }
 
-public interface IPaymentSystem
+public abstract class PaymentSystemMain
 {
-    public string GetPayingLink(Order order);
-}
+    protected readonly HashAlgorithmBase _hashAlgorithm;
 
-public enum HashAlgorithmName
-{
-    MD5,
-    SHA1
-}
-
-public static class HashCalculator
-{
-    public static string Calculate(string input, HashAlgorithmName name)
+    public PaymentSystemMain(HashAlgorithmBase hashAlgorithm)
     {
-        if (input == null)
-            throw new ArgumentNullException(nameof(input));
-
-        using (HashAlgorithm hashAlgorithm = Create(name))
-        {
-            byte[] inputBytes = Encoding.UTF8.GetBytes(input);
-            byte[] hashBytes = hashAlgorithm.ComputeHash(inputBytes);
-
-            return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
-        }
+        _hashAlgorithm = hashAlgorithm ?? throw new ArgumentNullException(nameof(hashAlgorithm));
     }
-
-    private static HashAlgorithm Create(HashAlgorithmName algorithmName)
-    {
-        string message = "Алгоритм хеширования не поддерживается.";
-
-        return algorithmName switch
-        {
-            HashAlgorithmName.MD5 => MD5.Create(),
-            HashAlgorithmName.SHA1 => SHA1.Create(),
-            _ => throw new NotSupportedException(message)
-        };
-    }
-}
-
-public abstract class PaymentSystemMain : IPaymentSystem
-{
-    protected abstract string GenerateHash(Order order);
 
     public string GetPayingLink(Order order)
     {
@@ -91,14 +94,18 @@ public abstract class PaymentSystemMain : IPaymentSystem
         return CreatePaymentLink(order, hash);
     }
 
+    protected abstract string GenerateHash(Order order);
+
     protected abstract string CreatePaymentLink(Order order, string hash);
 }
 
 public class PaymentSystem1 : PaymentSystemMain
 {
+    public PaymentSystem1(HashAlgorithmBase hashAlgorithm) : base(hashAlgorithm) { }
+
     protected override string GenerateHash(Order order)
     {
-        return HashCalculator.Calculate(order.Id.ToString(), HashAlgorithmName.MD5);
+        return _hashAlgorithm.Create(order.Id.ToString());
     }
 
     protected override string CreatePaymentLink(Order order, string hash)
@@ -109,9 +116,11 @@ public class PaymentSystem1 : PaymentSystemMain
 
 public class PaymentSystem2 : PaymentSystemMain
 {
+    public PaymentSystem2(HashAlgorithmBase hashAlgorithm) : base(hashAlgorithm) { }
+
     protected override string GenerateHash(Order order)
     {
-        return HashCalculator.Calculate(order.Id + order.Amount.ToString(), HashAlgorithmName.MD5);
+        return _hashAlgorithm.Create(order.Id.ToString() + order.Amount.ToString());
     }
 
     protected override string CreatePaymentLink(Order order, string hash)
@@ -124,14 +133,14 @@ public class PaymentSystem3 : PaymentSystemMain
 {
     private readonly string _secretKey;
 
-    public PaymentSystem3(string secretKey)
+    public PaymentSystem3(HashAlgorithmBase hashAlgorithm, string secretKey) : base(hashAlgorithm)
     {
         _secretKey = secretKey ?? throw new ArgumentNullException(nameof(secretKey));
     }
 
     protected override string GenerateHash(Order order)
     {
-        return HashCalculator.Calculate(order.Amount + order.Id + _secretKey, HashAlgorithmName.SHA1);
+        return _hashAlgorithm.Create($"{order.Id}{order.Amount}{_secretKey}");
     }
 
     protected override string CreatePaymentLink(Order order, string hash)
