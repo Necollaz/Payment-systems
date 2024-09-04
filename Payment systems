@@ -1,0 +1,141 @@
+using System.Security.Cryptography;
+using System.Text;
+
+internal class Program1
+{
+    static void Main(string[] args)
+    {
+        string secretKey = "secret_key";
+
+        Order order = new Order(1, 12000);
+
+        IPaymentSystem system1 = new PaymentSystem1();
+        IPaymentSystem system2 = new PaymentSystem2();
+        IPaymentSystem system3 = new PaymentSystem3(secretKey);
+
+        Console.WriteLine(system1.GetPayingLink(order));
+        Console.WriteLine(system2.GetPayingLink(order));
+        Console.WriteLine(system3.GetPayingLink(order));
+    }
+}
+
+public class Order
+{
+    private const int MinValue = 1;
+
+    public readonly int Id;
+    public readonly int Amount;
+
+    public Order(int id, int amount)
+    {
+        if (id <= MinValue)
+            throw new ArgumentOutOfRangeException(nameof(id), "Id должен быть положительным");
+        if (amount <= MinValue)
+            throw new ArgumentOutOfRangeException(nameof(amount), "Amount должен быть положительным");
+
+        (Id, Amount) = (id, amount);
+    }
+}
+
+public interface IPaymentSystem
+{
+    public string GetPayingLink(Order order);
+}
+
+public enum HashAlgorithmName
+{
+    MD5,
+    SHA1
+}
+
+public static class HashCalculator
+{
+    public static string Calculate(string input, HashAlgorithmName name)
+    {
+        if (input == null)
+            throw new ArgumentNullException(nameof(input));
+
+        using (HashAlgorithm hashAlgorithm = Create(name))
+        {
+            byte[] inputBytes = Encoding.UTF8.GetBytes(input);
+            byte[] hashBytes = hashAlgorithm.ComputeHash(inputBytes);
+
+            return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+        }
+    }
+
+    private static HashAlgorithm Create(HashAlgorithmName algorithmName)
+    {
+        string message = "Алгоритм хеширования не поддерживается.";
+
+        return algorithmName switch
+        {
+            HashAlgorithmName.MD5 => MD5.Create(),
+            HashAlgorithmName.SHA1 => SHA1.Create(),
+            _ => throw new NotSupportedException(message)
+        };
+    }
+}
+
+public abstract class PaymentSystemMain : IPaymentSystem
+{
+    protected abstract string GenerateHash(Order order);
+
+    public string GetPayingLink(Order order)
+    {
+        if (order == null)
+            throw new ArgumentNullException(nameof(order));
+
+        string hash = GenerateHash(order);
+
+        return CreatePaymentLink(order, hash);
+    }
+
+    protected abstract string CreatePaymentLink(Order order, string hash);
+}
+
+public class PaymentSystem1 : PaymentSystemMain
+{
+    protected override string GenerateHash(Order order)
+    {
+        return HashCalculator.Calculate(order.Id.ToString(), HashAlgorithmName.MD5);
+    }
+
+    protected override string CreatePaymentLink(Order order, string hash)
+    {
+        return $"pay.system1.ru/order?amount={order.Amount}RUB&hash={hash}";
+    }
+}
+
+public class PaymentSystem2 : PaymentSystemMain
+{
+    protected override string GenerateHash(Order order)
+    {
+        return HashCalculator.Calculate(order.Id + order.Amount.ToString(), HashAlgorithmName.MD5);
+    }
+
+    protected override string CreatePaymentLink(Order order, string hash)
+    {
+        return $"order.system2.ru/pay?hash={hash}";
+    }
+}
+
+public class PaymentSystem3 : PaymentSystemMain
+{
+    private readonly string _secretKey;
+
+    public PaymentSystem3(string secretKey)
+    {
+        _secretKey = secretKey ?? throw new ArgumentNullException(nameof(secretKey));
+    }
+
+    protected override string GenerateHash(Order order)
+    {
+        return HashCalculator.Calculate(order.Amount + order.Id + _secretKey, HashAlgorithmName.SHA1);
+    }
+
+    protected override string CreatePaymentLink(Order order, string hash)
+    {
+        return $"system3.com/pay?amount={order.Amount}&currency=RUB&hash={hash}";
+    }
+}
