@@ -135,7 +135,10 @@ public class PaymentSystem3 : PaymentSystemMain
 
     public PaymentSystem3(HashAlgorithmBase hashAlgorithm, string secretKey) : base(hashAlgorithm)
     {
-        _secretKey = secretKey ?? throw new ArgumentNullException(nameof(secretKey));
+        if (string.IsNullOrWhiteSpace(secretKey))
+            throw new ArgumentNullException(nameof(secretKey));
+
+        _secretKey = secretKey;
     }
 
     protected override string GenerateHash(Order order)
